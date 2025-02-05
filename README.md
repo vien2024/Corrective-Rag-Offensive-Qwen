@@ -1,4 +1,4 @@
-# 📑 RAG with Cross-Encoders Re-ranking Demo Application
+# 📑 Corrective-RAG-Offensive-Qwen
 
 Demo LLM app with RAG for the YouTube video.
 
