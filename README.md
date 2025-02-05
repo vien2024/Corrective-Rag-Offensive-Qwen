@@ -3,12 +3,14 @@
 - This project is part of and the first version of Offensive-GenAI system
 ## Offensive-Engine
 - Offensive-Engine is a collection of open-source fine-tuned models used for code reviews, static analysis and pentesting in general.
+- Here is my huggingface hub: huggingface.co/doss1232
 ## Technology used
 - Langchain
 - Streamlit
 - Tavily
 - Chromadb
 - Ollama
+
 ## Guide to using
 1. Clone the repo
 2. Go into requirements folder
