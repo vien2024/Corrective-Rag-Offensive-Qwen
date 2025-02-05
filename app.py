@@ -1,145 +1,31 @@
+__import__('pysqlite3')
+import sys
+sys.modules['sqlite3'] = sys.modules.pop('pysqlite3')
 import os
-import tempfile
-
-import chromadb
 import ollama
 import streamlit as st
-from chromadb.utils.embedding_functions.ollama_embedding_function import (
-    OllamaEmbeddingFunction,
-)
-from langchain_community.document_loaders import PyMuPDFLoader
-from langchain_core.documents import Document
-from langchain_text_splitters import RecursiveCharacterTextSplitter
+
 from sentence_transformers import CrossEncoder
-from streamlit.runtime.uploaded_file_manager import UploadedFile
+from db_tool.db_function import process_document, query_collection, add_to_vector_collection, get_retriever
+from graph import build_graph
+import uuid
+from langsmith import utils
+utils.tracing_is_enabled()
+# Load api key
+LANGSMITH_TRACING=True
+LANGSMITH_ENDPOINT="https://api.smith.langchain.com"
+LANGSMITH_API_KEY="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"
+LANGSMITH_PROJECT="pr-warmhearted-mining-56"
 
 system_prompt = """
-You are an AI assistant tasked with providing detailed answers based solely on the given context. Your goal is to analyze the information provided and formulate a comprehensive, well-structured response to the question.
+You are an Vulnerability researcher tasked with providing detailed answers based solely on the given context. 
+Your goal is to analyze the information provided and formulate a comprehensive, well-structured response to the question. Don't repeat.
 
 context will be passed as "Context:"
 user question will be passed as "Question:"
 
-To answer the question:
-1. Thoroughly analyze the context, identifying key information relevant to the question.
-2. Organize your thoughts and plan your response to ensure a logical flow of information.
-3. Formulate a detailed answer that directly addresses the question, using only the information provided in the context.
-4. Ensure your answer is comprehensive, covering all relevant aspects found in the context.
-5. If the context doesn't contain sufficient information to fully answer the question, state this clearly in your response.
-
-Format your response as follows:
-1. Use clear, concise language.
-2. Organize your answer into paragraphs for readability.
-3. Use bullet points or numbered lists where appropriate to break down complex information.
-4. If relevant, include any headings or subheadings to structure your response.
-5. Ensure proper grammar, punctuation, and spelling throughout your answer.
-
-Important: Base your entire response solely on the information provided in the context. Do not include any external knowledge or assumptions not present in the given text.
 """
 
-
-def process_document(uploaded_file: UploadedFile) -> list[Document]:
-    """Processes an uploaded PDF file by converting it to text chunks.
-
-    Takes an uploaded PDF file, saves it temporarily, loads and splits the content
-    into text chunks using recursive character splitting.
-
-    Args:
-        uploaded_file: A Streamlit UploadedFile object containing the PDF file
-
-    Returns:
-        A list of Document objects containing the chunked text from the PDF
-
-    Raises:
-        IOError: If there are issues reading/writing the temporary file
-    """
-    # Store uploaded file as a temp file
-    temp_file = tempfile.NamedTemporaryFile("wb", suffix=".pdf", delete=False)
-    temp_file.write(uploaded_file.read())
-
-    loader = PyMuPDFLoader(temp_file.name)
-    docs = loader.load()
-    os.unlink(temp_file.name)  # Delete temp file
-
-    text_splitter = RecursiveCharacterTextSplitter(
-        chunk_size=400,
-        chunk_overlap=100,
-        separators=["\n\n", "\n", ".", "?", "!", " ", ""],
-    )
-    return text_splitter.split_documents(docs)
-
-
-def get_vector_collection() -> chromadb.Collection:
-    """Gets or creates a ChromaDB collection for vector storage.
-
-    Creates an Ollama embedding function using the nomic-embed-text model and initializes
-    a persistent ChromaDB client. Returns a collection that can be used to store and
-    query document embeddings.
-
-    Returns:
-        chromadb.Collection: A ChromaDB collection configured with the Ollama embedding
-            function and cosine similarity space.
-    """
-    ollama_ef = OllamaEmbeddingFunction(
-        url="http://localhost:11434/api/embeddings",
-        model_name="nomic-embed-text:latest",
-    )
-
-    chroma_client = chromadb.PersistentClient(path="./demo-rag-chroma")
-    return chroma_client.get_or_create_collection(
-        name="rag_app",
-        embedding_function=ollama_ef,
-        metadata={"hnsw:space": "cosine"},
-    )
-
-
-def add_to_vector_collection(all_splits: list[Document], file_name: str):
-    """Adds document splits to a vector collection for semantic search.
-
-    Takes a list of document splits and adds them to a ChromaDB vector collection
-    along with their metadata and unique IDs based on the filename.
-
-    Args:
-        all_splits: List of Document objects containing text chunks and metadata
-        file_name: String identifier used to generate unique IDs for the chunks
-
-    Returns:
-        None. Displays a success message via Streamlit when complete.
-
-    Raises:
-        ChromaDBError: If there are issues upserting documents to the collection
-    """
-    collection = get_vector_collection()
-    documents, metadatas, ids = [], [], []
-
-    for idx, split in enumerate(all_splits):
-        documents.append(split.page_content)
-        metadatas.append(split.metadata)
-        ids.append(f"{file_name}_{idx}")
-
-    collection.upsert(
-        documents=documents,
-        metadatas=metadatas,
-        ids=ids,
-    )
-    st.success("Data added to the vector store!")
-
-
-def query_collection(prompt: str, n_results: int = 10):
-    """Queries the vector collection with a given prompt to retrieve relevant documents.
-
-    Args:
-        prompt: The search query text to find relevant documents.
-        n_results: Maximum number of results to return. Defaults to 10.
-
-    Returns:
-        dict: Query results containing documents, distances and metadata from the collection.
-
-    Raises:
-        ChromaDBError: If there are issues querying the collection.
-    """
-    collection = get_vector_collection()
-    results = collection.query(query_texts=[prompt], n_results=n_results)
-    return results
 
 
 def call_llm(context: str, prompt: str):
@@ -159,7 +45,7 @@ def call_llm(context: str, prompt: str):
         OllamaError: If there are issues communicating with the Ollama API
     """
     response = ollama.chat(
-        model="llama3.2:3b",
+        model="Offensive-Qwen",
         stream=True,
         messages=[
             {
@@ -209,42 +95,53 @@ def re_rank_cross_encoders(documents: list[str]) -> tuple[str, list[int]]:
 
     return relevant_text, relevant_text_ids
 
+def predict_custom_agent_local_answer(example: dict):
+        config = {"configurable": {"thread_id": str(uuid.uuid4())}}
+        state_dict = custom_graph.invoke(
+        {"question": example["input"], "steps": []}, config
+        )
+        return {"response": state_dict["generation"], "steps": state_dict["steps"]}
 
 if __name__ == "__main__":
     # Document Upload Area
+    #print('##############Document')
+    #retriever = get_retriever()
+    #print(retriever.invoke("Math"))
+    custom_graph = build_graph()
     with st.sidebar:
-        st.set_page_config(page_title="RAG Question Answer")
-        uploaded_file = st.file_uploader(
-            "**📑 Upload PDF files for QnA**", type=["pdf"], accept_multiple_files=False
-        )
+       st.set_page_config(page_title="RAG Question Answer")
+       uploaded_file = st.file_uploader(
+           "**📑 Upload PDF files for QnA**", type=["pdf", "docx", "pptx", "xlsx"], accept_multiple_files=True
+       )
 
-        process = st.button(
-            "⚡️ Process",
-        )
-        if uploaded_file and process:
-            normalize_uploaded_file_name = uploaded_file.name.translate(
-                str.maketrans({"-": "_", ".": "_", " ": "_"})
-            )
-            all_splits = process_document(uploaded_file)
-            add_to_vector_collection(all_splits, normalize_uploaded_file_name)
+       process = st.button(
+           "⚡️ Process",
+       )
+       ##
+       #print(uploaded_file)
+       #print('####################################################')
+       if uploaded_file and process:
+           # Because we accept multiple file, uploaded_file is list
+           for file in uploaded_file:
+               normalize_uploaded_file_name = file.name.translate(str.maketrans({"-": "_", ".": "_", " ": "_"}))
+               print('####################################################')
+               print(file)
+               all_splits = process_document(file)
+               add_to_vector_collection(all_splits, normalize_uploaded_file_name)
 
     # Question and Answer Area
     st.header("🗣️ RAG Question Answer")
     prompt = st.text_area("**Ask a question related to your document:**")
     ask = st.button(
-        "🔥 Ask",
+       "🔥 Ask",
     )
 
     if ask and prompt:
-        results = query_collection(prompt)
-        context = results.get("documents")[0]
-        relevant_text, relevant_text_ids = re_rank_cross_encoders(context)
-        response = call_llm(context=relevant_text, prompt=prompt)
-        st.write_stream(response)
-
-        with st.expander("See retrieved documents"):
-            st.write(results)
-
-        with st.expander("See most relevant document ids"):
-            st.write(relevant_text_ids)
-            st.write(relevant_text)
+       question = {"input": prompt}
+       print("############Debug")
+       print(question)
+       print(question['input'])
+       response = predict_custom_agent_local_answer(question)
+       with st.container():
+           st.write("Here is the response:")
+           st.write(response["response"])
