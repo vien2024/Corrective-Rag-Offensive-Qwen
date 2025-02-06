@@ -21,6 +21,7 @@
    + ollama pull Offensive-Qwen:latest
    + ollama pull nomic-embed-text:latest
 7. Set up LangSmith api key (optional):
+
 ![image](https://github.com/user-attachments/assets/de756f1d-d089-4fac-bd11-341509f98d5c)
 
 8. In the project repo, run: streamlit run app.py
