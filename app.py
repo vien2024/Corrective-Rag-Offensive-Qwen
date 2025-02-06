@@ -4,6 +4,7 @@ sys.modules['sqlite3'] = sys.modules.pop('pysqlite3')
 import os
 import ollama
 import streamlit as st
+from dotenv import load_dotenv
 
 from sentence_transformers import CrossEncoder
 from db_tool.db_function import process_document, query_collection, add_to_vector_collection, get_retriever
@@ -14,8 +15,8 @@ utils.tracing_is_enabled()
 # Load api key
 LANGSMITH_TRACING=True
 LANGSMITH_ENDPOINT="https://api.smith.langchain.com"
-LANGSMITH_API_KEY="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"
-LANGSMITH_PROJECT="pr-warmhearted-mining-56"
+LANGSMITH_API_KEY=os.getenv('LANGSMITH_API_KEY')
+LANGSMITH_PROJECT=os.getenv('LANGSMITH_PROJECT')
 
 system_prompt = """
 You are an Vulnerability researcher tasked with providing detailed answers based solely on the given context. 
