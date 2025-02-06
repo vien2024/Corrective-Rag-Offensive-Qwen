@@ -13,10 +13,9 @@ import uuid
 from langsmith import utils
 utils.tracing_is_enabled()
 # Load api key
-LANGSMITH_TRACING=True
-LANGSMITH_ENDPOINT="https://api.smith.langchain.com"
-LANGSMITH_API_KEY=os.getenv('LANGSMITH_API_KEY')
-LANGSMITH_PROJECT=os.getenv('LANGSMITH_PROJECT')
+from dotenv import load_dotenv
+
+load_dotenv(override=True)
 
 system_prompt = """
 You are an Vulnerability researcher tasked with providing detailed answers based solely on the given context. 
